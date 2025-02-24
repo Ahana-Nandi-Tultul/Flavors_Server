@@ -133,6 +133,11 @@ async function run() {
           res.send(result);
         })
 
+        app.get('/users',verifyJwt, verifyAdmin, async(req, res) => {
+          const result = await userCollections.find().toArray();
+          res.send(result);
+        });
+    
         app.post('/users', async(req, res) => {
           const newUser = req.body;
           const email = newUser?.email;
@@ -169,7 +174,24 @@ async function run() {
         }
   
       })
-  
+      app.patch('/users/:id', verifyJwt, verifyAdmin, async(req, res) => {
+        const id = req.params.id;
+        const role = req.body;
+        const filter = {_id: new ObjectId(id)};
+        const newRole = {
+          $set: role
+        }
+        const result = await userCollections.updateOne(filter, newRole);
+        res.send(result);
+      });
+
+      app.delete('/users/:id', verifyJwt, verifyAdmin, async(req, res) => {
+        const id = req.params.id;
+        const query = {_id: new ObjectId(id)};
+        const result = await userCollections.deleteOne(query);
+        res.send(result);
+      });
+
       app.get('/carts/:email', verifyJwt, async(req, res) => {
         const email = req.params.email;
         //console.log(email);
@@ -245,7 +267,23 @@ async function run() {
         }
         const result = await paymentCollections.find(query).sort({date : -1 }).toArray();
         res.send(result);
-      })
+      });
+
+      app.get('/allOrders', verifyJwt, verifyAdmin, async(req, res) => {
+        const result = await paymentCollections.find().toArray();
+        res.send(result);
+      });
+
+      app.patch('/allOrders/:id', verifyJwt, verifyAdmin, async(req, res) => {
+        const productid = req.params.id;
+        const filter = {_id: new ObjectId(productid)};
+        const status = req.body.status;
+        const newStatus = {
+          $set: {status}
+        };
+        const result = await paymentCollections.updateOne(filter, newStatus);
+        res.send(result);
+      });
        
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
