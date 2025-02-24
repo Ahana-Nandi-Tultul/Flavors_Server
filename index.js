@@ -13,17 +13,17 @@ app.use(cors());
 app.use(express.json());
 
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+    res.header('Access-Control-Allow-Origin', 'https://flavors-65d28.web.app');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     next();
   });
   
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.epxwefd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
-
+  const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.epxwefd.mongodb.net/myDatabase?retryWrites=true&w=majority`;
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
     serverApi: {
+      tls: true,
       version: ServerApiVersion.v1,
       strict: true,
       deprecationErrors: true,
@@ -203,7 +203,7 @@ async function run() {
   
       app.post('/carts', verifyJwt, async (req, res) => {
         const { userCart } = req.body; 
-    
+        // console.log(userCart);
         if (!userCart || !Array.isArray(userCart) || userCart.length === 0) {
             return res.status(400).send({ message: "Invalid cart data" });
         }
