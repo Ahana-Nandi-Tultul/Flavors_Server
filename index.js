@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', 'https://flavors-65d28.web.app');
+    res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     next();
@@ -242,23 +242,37 @@ async function run() {
         })
       });
 
-      app.post('/payments', verifyJwt, async(req, res) => {
+      app.post('/payments', verifyJwt, async (req, res) => {
         const payment = req.body;
-        const insertResult = await paymentCollections.insertOne(payment);
-        for (const produtId of payment.productId) {
-          // console.log(classId);
-          const buyquantity = produtId.quantity;
-          await paymentCollections.updateOne(
-            { _id: new ObjectId(produtId), quantity: { $gt: 0 } },
-            { $inc: { quantity: -buyquantity } }
-          );
+        console.log(`payment: ${payment}`)
+        try {  
+            const insertResult = await paymentCollections.insertOne(payment);
+            //console.log(insertResult);
+            for (const product of payment.productId) {
+                //console.log(product);
+                const productId = product.id; 
+                const buyQuantity = product.quantity; 
+    
+                const updateResult = await itemCollections.updateOne(
+                    { _id: new ObjectId(productId), quantity: { $gt: 0 } }, 
+                    { $inc: { quantity: -buyQuantity } } 
+                );
+    
+                console.log(`Updated product ${productId}:`, updateResult);
+            }
+    
+            const query = {
+                _id: { $in: payment.cartItems.map(id => new ObjectId(id)) }
+            };
+            const deleteResult = await cartCollections.deleteMany(query);
+    
+            res.send({ success: true, insertResult, deleteResult });
+        } catch (error) {
+            console.error("Error processing payment:", error);
+            res.status(500).send({ success: false, message: "Internal server error" });
         }
-        const query = {
-          _id: {$in : payment.cartItems.map(id => new ObjectId(id))}
-        };
-        const deleteResult = await cartCollections.deleteMany(query);
-        res.send({deleteResult});
-      });
+    });
+    
 
       app.get('/payments/history/:email', verifyJwt, async(req, res) => {
         const email = req.params.email;
