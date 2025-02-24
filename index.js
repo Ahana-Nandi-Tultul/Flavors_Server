@@ -1,9 +1,12 @@
 const express = require('express');
 const app = express();
 var jwt = require('jsonwebtoken');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const port = process.env.PORT || 5000;
 require('dotenv').config();
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_SECRET);
+//console.log(process.env.PAYMENT_GATEWAY_SECRET);
+const port = process.env.PORT || 5000;
+
 const cors = require('cors');
 
 app.use(cors());
@@ -50,11 +53,61 @@ async function run() {
     try { 
         const itemCollections = client.db('flavors').collection('items');
         const userCollections = client.db('flavors').collection('users');
+        const cartCollections = client.db('flavors').collection('carts');
+        const paymentCollections = client.db('flavors').collection('payments');
 
-        app.get('/allItems', async(req, res) => {
+        const verifyAdmin = async(req, res, next) =>{
+          const email = req.decode.email;
+          const query = {email: email};
+          const result = await userCollections.findOne(query);
+          if(result.role === 'Admin'){
+            next();
+          }
+        };
+        
+        app.get('/allItems', async (req, res) => {
+          try {
+              const result = await itemCollections.find({ quantity: { $gt: 0 } }).toArray();
+              res.send(result);
+          } catch (error) {
+              console.error("Error fetching items:", error);
+              res.status(500).send({ error: "Internal Server Error" });
+          }
+      });
+      
+        app.get('/adminAllItems/:email', verifyJwt, verifyAdmin, async(req, res) => {
             const result = await itemCollections.find().toArray();
             res.send(result);
         })
+
+        app.patch('/updateProduct/:id', verifyJwt, verifyAdmin, async(req, res) => {
+          const itemId = req.params.id;
+          const filter = {_id: new ObjectId(itemId)};
+          const updateInfo = req.body.updateInfo;
+          const newUpdateInfo = {
+            $set : {
+              name: updateInfo?.name,
+              price : updateInfo?.price,
+              quantity : updateInfo?.quantity
+            }
+          }
+          const result = await itemCollections.updateOne(filter, newUpdateInfo)
+          res.send(result);
+        });
+
+        app.delete('/product/:id', verifyJwt, verifyAdmin, async(req, res) => {
+          const id = req.params.id;
+          const query = {_id: new ObjectId(id)};
+          const result = await itemCollections.deleteOne(query);
+          res.send(result);
+        });
+
+        app.post('/item', verifyJwt, verifyAdmin, async(req, res) => {
+          const newItem = req.body.newItem;
+          // console.log(newClass);
+          const result = await itemCollections.insertOne(newItem);
+          res.send(result);
+        });
 
         app.get('/totalItems', async(req, res) => {
           const result = await itemCollections.estimatedDocumentCount();
@@ -94,7 +147,7 @@ async function run() {
 
       app.get('/users/:email', verifyJwt, async(req, res) => {
         const email = req.params.email;
-        console.log(email);
+        //console.log(email);
         if(email !== req.decode.email){
           return res.status(403).send({error: {status: true, message: 'forbidden access'}});
         }
@@ -117,6 +170,82 @@ async function run() {
   
       })
   
+      app.get('/carts/:email', verifyJwt, async(req, res) => {
+        const email = req.params.email;
+        //console.log(email);
+        const filter = { userEmail: email };
+        const result = await cartCollections.find(filter).toArray();
+        //console.log(result, filter);
+        res.send(result);
+      });
+  
+      app.post('/carts', verifyJwt, async (req, res) => {
+        const { userCart } = req.body; 
+    
+        if (!userCart || !Array.isArray(userCart) || userCart.length === 0) {
+            return res.status(400).send({ message: "Invalid cart data" });
+        }
+    
+        try {
+            const result = await cartCollections.insertMany(userCart); 
+            res.send(result);
+        } catch (error) {
+            console.error("Error inserting cart data:", error);
+            res.status(500).send({ message: "Failed to insert cart items" });
+        }
+    });
+    
+    
+  
+      app.delete('/carts/:id', verifyJwt, async(req, res) => {
+        const id = req.params.id;
+        const filter = {_id: new ObjectId(id)};
+        const result = await cartCollections.deleteOne(filter);
+        res.send(result);
+      })
+
+      app.post('/create-payment-intent', verifyJwt, async(req, res) => {
+        const {price} = req.body;
+        const amount = parseInt(price * 100);
+        const payment = await stripe.paymentIntents.create({
+          amount: amount,
+          currency: 'usd',
+          payment_method_types: ["card"],
+        });
+        console.log({
+          clientSecret : payment.client_secret
+        });
+        res.send({
+          clientSecret : payment.client_secret
+        })
+      });
+
+      app.post('/payments', verifyJwt, async(req, res) => {
+        const payment = req.body;
+        const insertResult = await paymentCollections.insertOne(payment);
+        for (const produtId of payment.productId) {
+          // console.log(classId);
+          const buyquantity = produtId.quantity;
+          await paymentCollections.updateOne(
+            { _id: new ObjectId(produtId), quantity: { $gt: 0 } },
+            { $inc: { quantity: -buyquantity } }
+          );
+        }
+        const query = {
+          _id: {$in : payment.cartItems.map(id => new ObjectId(id))}
+        };
+        const deleteResult = await cartCollections.deleteMany(query);
+        res.send({deleteResult});
+      });
+
+      app.get('/payments/history/:email', verifyJwt, async(req, res) => {
+        const email = req.params.email;
+        const query = {
+          email: email
+        }
+        const result = await paymentCollections.find(query).sort({date : -1 }).toArray();
+        res.send(result);
+      })
        
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
